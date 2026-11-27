@@ -358,6 +358,8 @@ function makePuppet(gltf, entry) {
     // the top of each halo branch (usually a node hanging off the head bone)
     if (/halo/i.test(o.name) && !underHalo(o.parent) && !o.isSkinnedMesh) p.haloRoots.push({ obj: o, parent: o.parent });
   });
+  // alternate copies of body parts (e.g. Kisaki's Body02) stay hidden; drawing both breaks the model
+  for (const o of hideAlternateParts(root, meshes)) meshes.splice(meshes.indexOf(o), 1);
   for (const o of [...meshes]) {
     if (MOUTH.test(o.name) || isProp(o) || underHalo(o)) continue;
     const acc = splitAccessories(o);
@@ -392,6 +394,120 @@ function makePuppet(gltf, entry) {
   return p;
 }
 const isBodyBone = (b) => /^Bip001/i.test(b.name) && !/weapon/i.test(b.name);
+
+// Some models carry alternate copies of a body part (Kisaki's Body02 vs Body01, Niko's Hand02 vs Hand01, …).
+// The game shows one or the other; the files only mark them with a "switchN" extra and don't say when.
+// A switch-marked part that uses no bones of its own and sits on top of another part (>= 80% of its
+// vertices within 3 mm of it) is such an alternate, so it's hidden. Returns the hidden meshes.
+// "CH0139_Body02" and "CH0139_Body_3" (the loader's de-duplicated primitive) both -> "CH0139_Body"
+function stemOf(o) {
+  const n = (o.isMesh && o.parent && !o.parent.isBone && o.parent.type === "Group" && o.parent.name ? o.parent.name : o.name);
+  return n.replace(/_\d+$/, "").replace(/\d+(?=(?:_Mesh|_Outline)?$)/i, "");
+}
+function partNumber(o) {
+  const n = (o.isMesh && o.parent?.type === "Group" && o.parent.name && !o.parent.isBone ? o.parent.name : o.name).replace(/_\d+$/, "");
+  const m = n.match(/(\d+)(?:_Mesh|_Outline)?$/i);
+  return m ? Number(m[1]) : 0;
+}
+function hideAlternateParts(root, meshes) {
+  const isSwitch = (o) => Object.keys(o.userData ?? {}).some((k) => /^switch\d+$/.test(k));
+  const nodes = [];
+  root.traverse((o) => { if (isSwitch(o)) nodes.push(o); });
+  const hidden = [];
+  const v = new THREE.Vector3();
+  const usedBones = (ms) => {
+    const set = new Set();
+    for (const m of ms) {
+      if (!m.isSkinnedMesh) continue;
+      const si = m.geometry.attributes.skinIndex, sw = m.geometry.attributes.skinWeight;
+      for (let i = 0; i < si.count; i++) {
+        for (let c = 0; c < si.itemSize; c++) if (sw.getComponent(i, c) > 0.01) set.add(m.skeleton.bones[si.getComponent(i, c)]);
+      }
+    }
+    return set;
+  };
+  const CELL = 0.003;
+  const key = (x, y, z) => `${Math.round(x / CELL)},${Math.round(y / CELL)},${Math.round(z / CELL)}`;
+  for (const node of nodes) {
+    const group = [];
+    node.traverse((o) => { if (o.isMesh && !MOUTH.test(o.name)) group.push(o); });
+    if (!group.length) continue;
+    const others = meshes.filter((m) => !group.includes(m) && !MOUTH.test(m.name));
+    const mine = usedBones(group), theirs = usedBones(others);
+    if ([...mine].some((b) => !theirs.has(b))) continue; // has bones of its own: a real part
+    // its twin: same name apart from the number (Body02 ~ Body01, Hand02_Mesh ~ Hand01_Mesh, Face01_Outline ~ Face_Outline)
+    // the alternate is the higher-numbered twin (Body02 over Body01, Face01_Outline over Face_Outline)
+    const twins = others.filter((m) => stemOf(m) === stemOf(node));
+    if (!twins.length || partNumber(node) <= Math.min(...twins.map(partNumber))) continue;
+    // spatial hash of the other parts' vertices (cell = 3 mm), to measure real distances below
+    const grid = new Map();
+    for (const m of twins) {
+      const pos = m.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+        const k = key(v.x, v.y, v.z);
+        let list = grid.get(k);
+        if (!list) grid.set(k, (list = []));
+        list.push(v.x, v.y, v.z);
+      }
+    }
+    let total = 0, near = 0;
+    for (const m of group) {
+      const pos = m.geometry.attributes.position;
+      const stride = Math.max(1, Math.floor(pos.count / 300));
+      for (let i = 0; i < pos.count; i += stride) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+        total++;
+        const cx = Math.round(v.x / CELL), cy = Math.round(v.y / CELL), cz = Math.round(v.z / CELL);
+        let hit = false;
+        for (let dx = -1; dx <= 1 && !hit; dx++) for (let dy = -1; dy <= 1 && !hit; dy++) for (let dz = -1; dz <= 1 && !hit; dz++) {
+          const list = grid.get(`${cx + dx},${cy + dy},${cz + dz}`);
+          if (!list) continue;
+          for (let q = 0; q < list.length; q += 3) {
+            const ex = list[q] - v.x, ey = list[q + 1] - v.y, ez = list[q + 2] - v.z;
+            if (ex * ex + ey * ey + ez * ez < CELL * CELL) { hit = true; break; }
+          }
+        }
+        if (hit) near++;
+      }
+    }
+    if (total && near / total >= 0.8) {
+      for (const m of group) { m.visible = false; m.userData.alternate = true; hidden.push(m); }
+    }
+  }
+  // A few models contain a whole second body (Shigure (Hot Spring)'s cut-in body, Tsukuyo's tree disguise).
+  // If more than one part carries a face plus hair/body, keep the plain "…_Body" one and hide the rest.
+  const partOf = (m) => (m.parent?.type === "Group" && m.parent.name && !m.parent.isBone ? m.parent : m);
+  const bodies = new Map();
+  for (const m of meshes) {
+    if (hidden.includes(m) || MOUTH.test(m.name)) continue;
+    const part = partOf(m);
+    const list = bodies.get(part) ?? [];
+    list.push(m);
+    bodies.set(part, list);
+  }
+  const vertsOf = (ms) => ms.reduce((n, m) => n + m.geometry.attributes.position.count, 0);
+  let full = [...bodies].filter(([, ms]) => {
+    const mats = ms.map((m) => m.material?.name ?? "");
+    return mats.some((n) => /_Face\d*$/i.test(n)) && mats.some((n) => /_(Hair|Body)\d*$/i.test(n));
+  });
+  // a second *body* is big and spans head to feet; face/hair pieces (e.g. Ibuki's face mesh) are ordinary parts
+  const spansBody = (ms) => {
+    const names = [...usedBones(ms)].map((b) => b.name);
+    return names.some((n) => /head/i.test(n)) && names.some((n) => /foot/i.test(n));
+  };
+  const biggest = Math.max(0, ...full.map(([, ms]) => vertsOf(ms)));
+  full = full.filter(([, ms]) => vertsOf(ms) >= biggest * 0.3 && spansBody(ms));
+  if (full.length > 1) {
+    const plain = (part) => /_Body$/i.test(stemOf(part)) && !/cut-?in/i.test(part.name);
+    const keep = full.find(([part]) => plain(part)) ?? full[0];
+    for (const [part, ms] of full) {
+      if (part === keep[0]) continue;
+      for (const m of ms) { m.visible = false; m.userData.alternate = true; hidden.push(m); }
+    }
+  }
+  return hidden;
+}
 
 // Accessories baked into a body mesh (e.g. Shokuhou Misaki's bag): triangles skinned only to bones that
 // hang off the model's root instead of the body skeleton. They're split into their own mesh so they can be
@@ -1420,4 +1536,5 @@ renderer.setAnimationLoop(() => {
 
 await refreshCacheState();
 fromHash();
+
 

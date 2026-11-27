@@ -49,6 +49,7 @@ Commit the new `models.json`. Models that changed get new URLs (new commit), so 
 ## Notes
 
 - Six variants are the same 3D model as another entry and only add animations (e.g. Arisu (Battle) (Carrier), Toki (Battle) (Scenario)). They're hidden from the list, and their clips appear in the main entry's animation list with a suffix like "Idle (Carrier)". The table is `MERGE` in `tools/make_manifest.py`.
+- Some models contain alternate copies of parts that the game switches between (e.g. Kisaki's `Body02`, Niko's `Hand02`, Shigure (Hot Spring)'s cut-in body, Tsukuyo's tree disguise). The files only mark these with a `switchN` extra, so the viewer hides an alternate when it's a higher-numbered twin sitting on top of another part, or a second full body (head-to-feet) next to the plain `…_Body`.
 - Icons are matched to models by name, translating the model repo's outfit names to SchaleDB's ("Bunny Girl" → "Bunny", "Battle" → "Armed", …). Model-only variants such as "(Carrier)" or "(Cut-in)" use their outfit's icon. The script prints any models it couldn't match.
 - Shading is a generic toon approximation, not the game's shaders. The source models contain no material or mask data.
 - Furniture interactions are not included, because those motions aren't in the source repository.
