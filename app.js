@@ -1323,6 +1323,11 @@ $("swap-pair").addEventListener("click", swapPair);
 
 // ---------- keyboard shortcuts ----------
 const shortcuts = $("shortcuts-dialog");
+// phones / touch-only: no keyboard, so drop the "(/)" hint from the search box
+const noKeyboard = matchMedia("(max-width: 720px), (hover: none) and (pointer: coarse)");
+const syncKeyHints = () => { $("search").placeholder = noKeyboard.matches ? "Search students" : "Search students (/)"; };
+noKeyboard.addEventListener?.("change", syncKeyHints);
+syncKeyHints();
 const toggleShortcuts = () => (shortcuts.open ? shortcuts.close() : shortcuts.showModal());
 $("shortcuts-btn").addEventListener("click", toggleShortcuts);
 $("close-shortcuts").addEventListener("click", () => shortcuts.close());

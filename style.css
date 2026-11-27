@@ -286,3 +286,8 @@ kbd {
   border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px;
   background: var(--bg); color: var(--text); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/* no keyboard on phones / touch-only devices: hide the shortcuts button */
+@media (max-width: 720px), (hover: none) and (pointer: coarse) {
+  #shortcuts-btn { display: none; }
+}
