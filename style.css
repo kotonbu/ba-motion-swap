@@ -9,8 +9,9 @@
   --overlay: rgba(255, 255, 255, 0.86);
   color-scheme: light;
 }
+/* theme: follows the system unless the user picked one (data-theme on <html>) */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #12161c;
     --panel: #1a2029;
     --text: #e6ebf1;
@@ -21,6 +22,17 @@
     --overlay: rgba(18, 22, 28, 0.86);
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #12161c;
+  --panel: #1a2029;
+  --text: #e6ebf1;
+  --muted: #96a0ad;
+  --line: #2b3441;
+  --accent: #4aa8ff;
+  --accent-soft: #1d3247;
+  --overlay: rgba(18, 22, 28, 0.86);
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -184,6 +196,8 @@ input[type="color"] { width: 28px; height: 22px; padding: 0; border: 1px solid v
   .row:not(.wrap) { flex-wrap: wrap; }
   #scrub { flex-basis: 100%; order: 5; }
   .chip { max-width: 40%; }
+  .row.chips { flex-wrap: nowrap; }
+  .row.chips .chip { max-width: 38%; flex: 0 1 auto; }
   #delete-model { display: none; }
 }
 
@@ -235,4 +249,40 @@ input[type="color"] { width: 28px; height: 22px; padding: 0; border: 1px solid v
   .export-form, .export-progress { padding: 14px; }
   .export-range { grid-template-columns: 1fr 1fr; }
   .export-range .btn { grid-column: 1 / -1; }
+}
+
+/* ---------- sidebar header buttons, search row ---------- */
+.head-btns { display: inline-flex; align-items: center; gap: 2px; }
+.head-btn { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border-radius: 8px; color: var(--muted); font-size: 15px; line-height: 1; }
+.head-btn:hover { color: var(--text); background: var(--bg); }
+.search-row { display: flex; gap: 6px; }
+.search-row #search { flex: 1; min-width: 0; }
+.random-btn { display: inline-grid; place-items: center; flex: none; width: 36px; padding: 0; border-radius: 8px; color: var(--muted); }
+.random-btn:hover { color: var(--accent); border-color: var(--accent); }
+#empty-random { margin-top: 10px; pointer-events: auto; }
+
+/* ---------- swap + transport ---------- */
+.swap-btn { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 15px; flex: none; }
+.swap-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.swap-btn:disabled { opacity: .35; cursor: default; }
+.transport { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.step-btn { display: inline-grid; place-items: center; width: 30px; padding: 6px 0; }
+#time { min-width: 92px; }
+
+/* ---------- shortcuts dialog ---------- */
+#shortcuts-dialog {
+  width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px);
+  padding: 0; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--panel); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35);
+}
+#shortcuts-dialog::backdrop { background: rgba(10, 14, 20, .55); backdrop-filter: blur(2px); }
+.shortcuts-body { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; }
+.shortcut-list { display: grid; gap: 6px; margin: 0; }
+.shortcut-list > div { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 10px; }
+.shortcut-list dt { margin: 0; white-space: nowrap; }
+.shortcut-list dd { margin: 0; color: var(--muted); font-size: 13px; }
+kbd {
+  display: inline-block; min-width: 22px; padding: 1px 6px; text-align: center;
+  border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px;
+  background: var(--bg); color: var(--text); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
 }

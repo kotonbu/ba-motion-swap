@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Blue Archive Model Viewer</title>
 <meta name="description" content="Browse Blue Archive student models and animations in your browser.">
+<script>try { const t = localStorage.getItem("ba-viewer-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}</script>
 <link rel="stylesheet" href="./style.css">
 <script type="importmap">
 { "imports": {
@@ -18,14 +19,25 @@
   <aside id="sidebar">
     <header class="side-head">
       <h1>Model Viewer</h1>
-      <button id="close-side" class="icon-btn" title="Hide student list" aria-label="Hide student list">«</button>
+      <span class="head-btns">
+        <button id="theme-toggle" class="icon-btn head-btn" title="Theme: system (T)" aria-label="Switch theme">◐</button>
+        <button id="shortcuts-btn" class="icon-btn head-btn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
+        <button id="close-side" class="icon-btn head-btn" title="Hide student list (S)" aria-label="Hide student list">«</button>
+      </span>
     </header>
     <div class="tabs" role="tablist" aria-label="What a click picks">
       <button id="tab-model" role="tab" aria-selected="true">Model</button>
       <button id="tab-motion" role="tab" aria-selected="false">Motion</button>
     </div>
     <p id="pick-hint" class="hint">Pick the student to show.</p>
-    <input id="search" type="search" placeholder="Search students" autocomplete="off" aria-label="Search students">
+    <div class="search-row">
+      <input id="search" type="search" placeholder="Search students (/)" autocomplete="off" aria-label="Search students">
+      <button id="random-btn" class="btn subtle random-btn" title="Random pick (N)" aria-label="Pick a random student">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1.5 4.5h2.7c1.2 0 2.2.6 2.9 1.6l1.8 3.8c.7 1 1.7 1.6 2.9 1.6h2.7M1.5 11.5h2.7c1 0 1.9-.4 2.5-1.2M14.5 4.5h-2.7c-1 0-1.9.4-2.5 1.2M12.8 2.6l1.9 1.9-1.9 1.9M12.8 9.6l1.9 1.9-1.9 1.9"/>
+        </svg>
+      </button>
+    </div>
     <label class="check small"><input type="checkbox" id="cached-only"> Downloaded only</label>
     <ul id="list" role="listbox" aria-label="Students"></ul>
     <footer class="side-foot">
@@ -40,6 +52,7 @@
     <div id="empty" class="overlay">
       <p>Pick a student to load their model.</p>
       <p class="muted">Models are downloaded from GitHub once and kept in your browser.</p>
+      <button id="empty-random" class="btn">Random student</button>
     </div>
     <div id="loading" class="overlay hidden">
       <p id="loading-text">Downloading…</p>
@@ -52,14 +65,14 @@
         <button id="chip-model" class="chip" title="Change model">
           <img alt=""><span class="chip-text"><small>Model</small><b></b></span>
         </button>
-        <span class="plus" aria-hidden="true">+</span>
+        <button id="swap-pair" class="icon-btn swap-btn" title="Swap model and motion student (X)" aria-label="Swap model and motion student" disabled>⇄</button>
         <button id="chip-motion" class="chip" title="Change motion source">
           <img alt=""><span class="chip-text"><small>Motion from</small><b></b></span>
         </button>
         <button id="reset-motion" class="icon-btn hidden" title="Use the model's own motions" aria-label="Use the model's own motions">✕</button>
         <span class="spacer"></span>
         <button id="delete-model" class="btn subtle small">Delete download</button>
-        <button id="hide-controls" class="icon-btn panel-hide" title="Hide controls" aria-label="Hide controls">
+        <button id="hide-controls" class="icon-btn panel-hide" title="Hide controls (H)" aria-label="Hide controls">
           <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </div>
@@ -73,7 +86,15 @@
         </label>
       </div>
       <div class="row">
-        <button id="play" class="btn" aria-label="Pause">❚❚</button>
+        <span class="transport">
+          <button id="step-back" class="btn subtle step-btn" title="Previous frame (←, Shift for 10)" aria-label="Previous frame">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 3v10M13 3.5L6.5 8 13 12.5z" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          </button>
+          <button id="play" class="btn" title="Play / pause (Space)" aria-label="Pause">❚❚</button>
+          <button id="step-fwd" class="btn subtle step-btn" title="Next frame (→, Shift for 10)" aria-label="Next frame">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M12 3v10M3 3.5L9.5 8 3 12.5z" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          </button>
+        </span>
         <input id="scrub" type="range" min="0" max="1" step="0.001" value="0" aria-label="Animation time">
         <span id="time" class="mono">0.00s</span>
         <label class="field inline">Speed
@@ -100,22 +121,46 @@
             <option value="none">None</option>
           </select>
         </label>
-        <label class="check"><input type="checkbox" id="loop" checked> Loop</label>
+        <label class="check" title="Loop (L)"><input type="checkbox" id="loop" checked> Loop</label>
         <span class="nowrap">
           <label class="check">Background <input type="color" id="bg" value="#dfe8f2" autocomplete="off"></label>
           <button id="bg-reset" class="icon-btn small-icon" title="Reset background colour" aria-label="Reset background colour">↺</button>
         </span>
-        <button id="reset-cam" class="btn subtle small">Reset camera</button>
-        <button id="export-btn" class="btn small">Export…</button>
+        <button id="reset-cam" class="btn subtle small" title="Reset camera (R) · face close-up (F)">Reset camera</button>
+        <button id="export-btn" class="btn small" title="Export (E)">Export…</button>
       </div>
     </section>
-    <button id="show-controls" class="show-controls" aria-label="Show controls">
+    <button id="show-controls" class="show-controls" title="Show controls (H)" aria-label="Show controls">
       <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span>Controls</span>
     </button>
   </main>
 </div>
 <dialog id="export-dialog" aria-labelledby="export-title"></dialog>
+<dialog id="shortcuts-dialog" aria-labelledby="shortcuts-title">
+  <div class="shortcuts-body">
+    <header class="export-head">
+      <h2 id="shortcuts-title">Keyboard shortcuts</h2>
+      <button type="button" class="icon-btn" id="close-shortcuts" aria-label="Close">✕</button>
+    </header>
+    <dl class="shortcut-list">
+      <div><dt><kbd>Space</kbd></dt><dd>Play / pause</dd></div>
+      <div><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous / next frame (<kbd>Shift</kbd> for 10)</dd></div>
+      <div><dt><kbd>L</kbd></dt><dd>Loop on / off</dd></div>
+      <div><dt><kbd>R</kbd></dt><dd>Reset camera</dd></div>
+      <div><dt><kbd>F</kbd></dt><dd>Face close-up</dd></div>
+      <div><dt><kbd>X</kbd></dt><dd>Swap model and motion student</dd></div>
+      <div><dt><kbd>N</kbd></dt><dd>Random student (model or motion, by tab)</dd></div>
+      <div><dt><kbd>M</kbd></dt><dd>Switch Model / Motion tab</dd></div>
+      <div><dt><kbd>/</kbd></dt><dd>Search students</dd></div>
+      <div><dt><kbd>S</kbd></dt><dd>Show / hide student list</dd></div>
+      <div><dt><kbd>H</kbd></dt><dd>Show / hide controls</dd></div>
+      <div><dt><kbd>T</kbd></dt><dd>Theme: system / light / dark</dd></div>
+      <div><dt><kbd>E</kbd></dt><dd>Export</dd></div>
+      <div><dt><kbd>?</kbd></dt><dd>This list</dd></div>
+    </dl>
+  </div>
+</dialog>
 <script type="module" src="./app.js"></script>
 </body>
 </html>

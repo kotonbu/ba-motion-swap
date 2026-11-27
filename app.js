@@ -37,6 +37,23 @@ function requestPersist() {
   try { navigator.storage?.persist?.(); } catch {}
 }
 
+// ---------- theme: system / light / dark (the 3D background colour is separate) ----------
+const THEME_KEY = "ba-viewer-theme";
+const THEMES = ["system", "light", "dark"];
+const THEME_ICON = { system: "◐", light: "☀", dark: "☾" };
+let theme = "system";
+function setTheme(t, save = true) {
+  theme = THEMES.includes(t) ? t : "system";
+  if (theme === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  $("theme-toggle").textContent = THEME_ICON[theme];
+  $("theme-toggle").title = `Theme: ${theme} (T)`;
+  if (save) try { theme === "system" ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, theme); } catch {}
+}
+try { setTheme(localStorage.getItem(THEME_KEY) || "system", false); } catch { setTheme("system", false); }
+const cycleTheme = () => setTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]);
+$("theme-toggle").addEventListener("click", cycleTheme);
+
 // ---------- manifest ----------
 const manifest = await fetch("./models.json").then((r) => r.json());
 const models = manifest.models;
@@ -932,6 +949,7 @@ function updateChips() {
   setChip("chip-model", current, current?.name ?? "—");
   setChip("chip-motion", motionSrc ?? current, motionSrc ? motionSrc.name : "Own motions");
   $("reset-motion").classList.toggle("hidden", !motionSrc);
+  $("swap-pair").disabled = !motionSrc;
 }
 
 function applyLook() {
@@ -1109,13 +1127,52 @@ function syncPlayButton() {
   $("play").textContent = playing ? "❚❚" : "▶";
   $("play").setAttribute("aria-label", playing ? "Pause" : "Play");
 }
-$("play").addEventListener("click", () => {
+function togglePlay() {
   if (!action) return;
   if (!playing && action.loop === THREE.LoopOnce && action.time >= action.getClip().duration - 1e-3) action.reset().play();
   action.paused = false;
   playing = !playing;
   syncPlayButton();
-});
+}
+$("play").addEventListener("click", togglePlay);
+
+// Frame stepping: pauses and moves by whole frames (the game's clips are 30 fps).
+const FRAME = 1 / 30;
+function stepFrames(n) {
+  if (!action) return;
+  const dur = action.getClip().duration;
+  if (!(dur > 0)) return;
+  playing = false;
+  syncPlayButton();
+  action.paused = false;
+  action.enabled = true;
+  const t = Math.round(action.time / FRAME + n) * FRAME;
+  action.time = $("loop").checked ? ((t % dur) + dur) % dur : Math.min(dur, Math.max(0, t));
+  step(0);
+  syncTime();
+}
+$("step-back").addEventListener("click", (e) => stepFrames(e.shiftKey ? -10 : -1));
+$("step-fwd").addEventListener("click", (e) => stepFrames(e.shiftKey ? 10 : 1));
+function syncTime() {
+  if (!action) return;
+  const dur = action.getClip().duration || 1;
+  const t = action.time % (dur + 1e-6);
+  if (!scrubbing) $("scrub").value = String(t / dur);
+  $("time").textContent = `${t.toFixed(2)} / ${dur.toFixed(2)} s`;
+}
+
+// Face close-up: keep the viewing direction, centre on the head.
+function frameFace() {
+  if (!model?.head) return frameModel();
+  model.root.updateMatrixWorld(true);
+  const h = model.height;
+  const target = model.head.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, h * 0.12, 0));
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  const dist = (h * 0.8) / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  controls.target.copy(target);
+  camera.position.copy(target).addScaledVector(dir, dist);
+  controls.update();
+}
 let scrubbing = false;
 $("scrub").addEventListener("input", () => {
   if (!action) return;
@@ -1243,6 +1300,72 @@ $("export-btn").addEventListener("click", async () => {
     console.error(e);
   }
 });
+// ---------- random pick & swap ----------
+// Picks from the students currently listed (so search and "Downloaded only" narrow it down).
+function randomPick() {
+  const shown = [...document.querySelectorAll("#list button.item")].map((b) => byName.get(b.dataset.name));
+  const all = models.filter((m) => !m.mergedInto);
+  const pool = (shown.length ? shown : all).filter((m) => m !== current && m !== motionSrc);
+  if (!pool.length) return;
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  if (pickMode === "motion" && current) load(current, pick);
+  else load(pick, motionSrc === pick ? null : motionSrc);
+}
+$("random-btn").addEventListener("click", randomPick);
+$("empty-random").addEventListener("click", () => {
+  const all = models.filter((m) => !m.mergedInto);
+  load(all[Math.floor(Math.random() * all.length)], null);
+});
+function swapPair() {
+  if (current && motionSrc) load(motionSrc, current);
+}
+$("swap-pair").addEventListener("click", swapPair);
+
+// ---------- keyboard shortcuts ----------
+const shortcuts = $("shortcuts-dialog");
+const toggleShortcuts = () => (shortcuts.open ? shortcuts.close() : shortcuts.showModal());
+$("shortcuts-btn").addEventListener("click", toggleShortcuts);
+$("close-shortcuts").addEventListener("click", () => shortcuts.close());
+shortcuts.addEventListener("click", (e) => { if (e.target === shortcuts) shortcuts.close(); });
+addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const tag = document.activeElement?.tagName;
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") {
+    if (e.key === "Escape") document.activeElement.blur();
+    return;
+  }
+  if ($("export-dialog").open) return;
+  if (e.key === "?") { e.preventDefault(); toggleShortcuts(); return; }
+  if (shortcuts.open) return;
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const act = {
+    "/": () => { setSidebar(true); $("search").focus(); },
+    m: () => { setSidebar(true); setPickMode(pickMode === "model" ? "motion" : "model"); },
+    s: () => {
+      // phones: the sidebar is a slide-over ("open"); wider screens: it's hidden via "side-hidden"
+      const shown = innerWidth <= 720 ? $("sidebar").classList.contains("open") : !$("app").classList.contains("side-hidden");
+      setSidebar(!shown);
+    },
+    h: () => setControls($("app").classList.contains("controls-hidden")),
+    t: cycleTheme,
+    n: randomPick,
+  }[k] ?? (model && {
+    " ": togglePlay,
+    ArrowLeft: () => stepFrames(e.shiftKey ? -10 : -1),
+    ArrowRight: () => stepFrames(e.shiftKey ? 10 : 1),
+    ",": () => stepFrames(-1),
+    ".": () => stepFrames(1),
+    l: () => { $("loop").checked = !$("loop").checked; $("loop").dispatchEvent(new Event("change")); },
+    r: frameModel,
+    f: frameFace,
+    x: swapPair,
+    e: () => $("export-btn").click(),
+  }[k]);
+  if (!act) return;
+  e.preventDefault();
+  act();
+});
+
 $("delete-model").addEventListener("click", async () => {
   if (!current) return;
   await cacheDelete(modelUrl(current));
@@ -1283,7 +1406,7 @@ renderer.setAnimationLoop(() => {
       const dur = action.getClip().duration || 1;
       const t = action.time % (dur + 1e-6);
       if (!scrubbing) $("scrub").value = String(t / dur);
-      $("time").textContent = `${t.toFixed(2)}s`;
+      $("time").textContent = `${t.toFixed(2)} / ${dur.toFixed(2)} s`;
     }
   }
   controls.update();

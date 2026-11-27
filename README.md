@@ -18,6 +18,8 @@ A static, single-page 3D viewer for Blue Archive student models. It runs entirel
   - **WebM** video (VP9 via WebCodecs; transparency is stored as an alpha side stream)
   - Animated exports take a frame rate and a start/end range, and play at the current speed.
 - Links are shareable: `#model=Yuuka&motion=Hoshino&anim=Exs`.
+- Light / dark / system theme, a random-pick button (model or motion, within the current search), a swap button for model ⇄ motion student, and frame-by-frame stepping.
+- Keyboard shortcuts (press <kbd>?</kbd> in the app for the list): Space play/pause, ←/→ step a frame (Shift: 10), L loop, R reset camera, F face close-up, X swap, N random, M Model/Motion tab, / search, S student list, H controls, T theme, E export.
 
 three.js 0.182.0 is loaded from jsDelivr via an import map. There is no build step.
 
