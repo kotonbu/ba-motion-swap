@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blue Archive Model Viewer</title>
+<meta name="description" content="Browse Blue Archive student models and animations in your browser.">
+<link rel="stylesheet" href="./style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.182.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.182.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <header class="side-head">
+      <h1>Model Viewer</h1>
+      <button id="close-side" class="icon-btn" title="Hide student list" aria-label="Hide student list">«</button>
+    </header>
+    <div class="tabs" role="tablist" aria-label="What a click picks">
+      <button id="tab-model" role="tab" aria-selected="true">Model</button>
+      <button id="tab-motion" role="tab" aria-selected="false">Motion</button>
+    </div>
+    <p id="pick-hint" class="hint">Pick the student to show.</p>
+    <input id="search" type="search" placeholder="Search students" autocomplete="off" aria-label="Search students">
+    <label class="check small"><input type="checkbox" id="cached-only"> Downloaded only</label>
+    <ul id="list" role="listbox" aria-label="Students"></ul>
+    <footer class="side-foot">
+      <div id="storage">—</div>
+      <button id="clear-all" class="btn subtle">Clear downloads</button>
+    </footer>
+  </aside>
+
+  <main id="stage">
+    <canvas id="canvas"></canvas>
+    <button id="open-side" class="btn floating" aria-label="Show student list">☰ Students</button>
+    <div id="empty" class="overlay">
+      <p>Pick a student to load their model.</p>
+      <p class="muted">Models are downloaded from GitHub once and kept in your browser.</p>
+    </div>
+    <div id="loading" class="overlay hidden">
+      <p id="loading-text">Downloading…</p>
+      <div class="bar"><div id="bar-fill"></div></div>
+    </div>
+    <div id="error" class="overlay hidden" role="alert"></div>
+
+    <section id="controls" class="hidden">
+      <div class="row chips">
+        <button id="chip-model" class="chip" title="Change model">
+          <img alt=""><span class="chip-text"><small>Model</small><b></b></span>
+        </button>
+        <span class="plus" aria-hidden="true">+</span>
+        <button id="chip-motion" class="chip" title="Change motion source">
+          <img alt=""><span class="chip-text"><small>Motion from</small><b></b></span>
+        </button>
+        <button id="reset-motion" class="icon-btn hidden" title="Use the model's own motions" aria-label="Use the model's own motions">✕</button>
+        <span class="spacer"></span>
+        <button id="delete-model" class="btn subtle small">Delete download</button>
+        <button id="hide-controls" class="icon-btn panel-hide" title="Hide controls" aria-label="Hide controls">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <p id="retarget-note" class="hint hidden"></p>
+      <div class="row">
+        <label class="field grow">Animation
+          <select id="anim"></select>
+        </label>
+        <label class="field">Mouth
+          <select id="mouth"></select>
+        </label>
+      </div>
+      <div class="row">
+        <button id="play" class="btn" aria-label="Pause">❚❚</button>
+        <input id="scrub" type="range" min="0" max="1" step="0.001" value="0" aria-label="Animation time">
+        <span id="time" class="mono">0.00s</span>
+        <label class="field inline">Speed
+          <select id="speed">
+            <option value="0.25">0.25×</option><option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option>
+          </select>
+        </label>
+      </div>
+      <div class="row wrap">
+        <label class="check"><input type="checkbox" id="toon" checked> Toon shading</label>
+        <label class="check"><input type="checkbox" id="outline" checked> Outlines</label>
+        <label class="field inline">Halo
+          <select id="halo" autocomplete="off">
+            <option value="model" selected>Model's</option>
+            <option value="motion" disabled>From motion</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <label class="field inline">Props
+          <select id="props" autocomplete="off">
+            <option value="all" selected>All</option>
+            <option value="noacc">No accessories</option>
+            <option value="none">None</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="loop" checked> Loop</label>
+        <span class="nowrap">
+          <label class="check">Background <input type="color" id="bg" value="#dfe8f2" autocomplete="off"></label>
+          <button id="bg-reset" class="icon-btn small-icon" title="Reset background colour" aria-label="Reset background colour">↺</button>
+        </span>
+        <button id="reset-cam" class="btn subtle small">Reset camera</button>
+        <button id="export-btn" class="btn small">Export…</button>
+      </div>
+    </section>
+    <button id="show-controls" class="show-controls" aria-label="Show controls">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Controls</span>
+    </button>
+  </main>
+</div>
+<dialog id="export-dialog" aria-labelledby="export-title"></dialog>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
