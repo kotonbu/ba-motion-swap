@@ -1159,6 +1159,9 @@ function applyLook() {
     if (mode === "mx" && l.userData.mxMat) l.material = l.userData.mxMat;
     else if (l.userData.stdMat) l.material = l.userData.stdMat;
   }
+  // re-apply right away: while paused, step() doesn't run to hide collapsed props' outlines
+  hideCollapsedOutlines(model);
+  if (swap) hideCollapsedOutlines(swap.donor);
   applyHalo();
 }
 
