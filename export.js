@@ -408,7 +408,7 @@ async function encodeAPNG({ times, w, h, s, signal }) {
 // ---------- GIF (gifenc) ----------
 async function encodeGIF({ times, w, h, s, transparent, signal }) {
   setProgress(0, "Loading GIF encoder…");
-  const { GIFEncoder, quantize, applyPalette } = await import(GIFENC);
+  const { GIFEncoder, quantize } = await import(GIFENC);
   const format = transparent ? "rgba4444" : "rgb565";
   // one shared palette from ~16 frames across the clip, so colours don't flicker between frames
   const count = Math.min(16, times.length);
@@ -426,8 +426,9 @@ async function encodeGIF({ times, w, h, s, transparent, signal }) {
   const transparentIndex = transparent ? Math.max(0, palette.findIndex((c) => c[3] === 0)) : 0;
   const gif = GIFEncoder();
   const unit = 100 / s.fps; // in 1/100 s
+  const mapFrame = paletteMapper(palette, w * h, transparent, transparentIndex);
   await renderFrames(times, signal, (px, i) => {
-    const index = applyPalette(px, palette, format);
+    const index = mapFrame(px);
     const delay = (Math.round((i + 1) * unit) - Math.round(i * unit)) * 10; // spread rounding, in ms
     gif.writeFrame(index, w, h, {
       palette: i === 0 ? palette : undefined, delay, repeat: 0,
@@ -436,6 +437,53 @@ async function encodeGIF({ times, w, h, s, transparent, signal }) {
   }, 0.15, 0.85);
   gif.finish();
   return new Blob([gif.bytes()], { type: "image/gif" });
+}
+
+// Maps frames to palette indices. Two things keep the animation from flickering:
+//  - full-precision nearest colour (perceptually weighted RGB), rather than gifenc's 5-6 bit lookup,
+//    whose coarse bands sat right inside the smooth shading;
+//  - a temporal lock: a pixel keeps last frame's index until its colour has moved more than a few levels
+//    away from the colour that index was picked for, so tiny frame-to-frame differences in smooth
+//    gradients no longer flip pixels back and forth between two neighbouring palette entries.
+function paletteMapper(palette, count, transparent, transparentIndex) {
+  const LOCK = 10; // summed |dR|+|dG|+|dB| within which a pixel keeps its previous index
+  const pr = [], pg = [], pb = [], idx = [];
+  palette.forEach((c, i) => {
+    if (transparent && i === transparentIndex) return;
+    pr.push(c[0]); pg.push(c[1]); pb.push(c[2]); idx.push(i);
+  });
+  const cache = new Map();
+  const nearest = (r, g, b) => {
+    const key = (r << 16) | (g << 8) | b;
+    let best = cache.get(key);
+    if (best !== undefined) return best;
+    let bestD = Infinity;
+    for (let k = 0; k < idx.length; k++) {
+      const dr = r - pr[k], dg = g - pg[k], db = b - pb[k];
+      const d = 2 * dr * dr + 4 * dg * dg + 3 * db * db;
+      if (d < bestD) { bestD = d; best = idx[k]; }
+    }
+    if (cache.size > 1 << 20) cache.clear();
+    cache.set(key, best);
+    return best;
+  };
+  const last = new Int16Array(count).fill(-1);
+  const ref = new Uint8Array(count * 3);
+  return (px) => {
+    const out = new Uint8Array(count);
+    for (let p = 0, i = 0; p < count; p++, i += 4) {
+      if (transparent && px[i + 3] < 128) { out[p] = transparentIndex; last[p] = -1; continue; }
+      const r = px[i], g = px[i + 1], b = px[i + 2], o = p * 3;
+      if (last[p] >= 0 && Math.abs(r - ref[o]) + Math.abs(g - ref[o + 1]) + Math.abs(b - ref[o + 2]) <= LOCK) {
+        out[p] = last[p];
+        continue;
+      }
+      const n = nearest(r, g, b);
+      out[p] = n; last[p] = n;
+      ref[o] = r; ref[o + 1] = g; ref[o + 2] = b;
+    }
+    return out;
+  };
 }
 
 // ---------- animated WebP (browser-encoded frames, muxed here) ----------
