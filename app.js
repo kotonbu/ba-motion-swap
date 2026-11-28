@@ -426,7 +426,87 @@ function makePuppet(gltf, entry) {
     }
     p.optional.push({ mesh: o, targets });
   }
+  p.switchParts = buildSwitchParts(root, meshes);
   return p;
+}
+
+// ---------- per-animation body variants ----------
+// Arisu (Battle) carries two whole bodies, both tagged "switchN": a plain one (CH0334_Body) and one with her
+// battle gear (CH0334_Arms_Body). The game shows the plain body in cafe clips and the geared one in battle
+// clips; drawn together they poke through each other. The files don't say which clip uses which, so:
+// a switch part with no bones of its own that mostly sits on another switch part is the "plain" variant,
+// shown alone in Cafe_* clips, hidden in battle clips (Normal_, Formation_, Exs…), and both are drawn in
+// any other clip (e.g. the Carrier clips).
+function buildSwitchParts(root, meshes) {
+  const isSwitch = (o) => Object.keys(o.userData ?? {}).some((k) => /^switch\d+$/.test(k));
+  const parts = [];
+  root.traverse((node) => {
+    if (!isSwitch(node)) return;
+    const own = [];
+    node.traverse((o) => { if (o.isSkinnedMesh && !o.userData.isOutline && !o.userData.alternate && !MOUTH.test(o.name)) own.push(o); });
+    if (own.length) parts.push({ node, own, meshes: meshes.filter((m) => own.includes(m) || own.includes(m.userData.source)) });
+  });
+  const pairs = [];
+  for (const plain of parts) {
+    const mine = new Set(plain.own.flatMap(bonesUsedBy));
+    for (const full of parts) {
+      if (full === plain) continue;
+      const theirs = new Set(full.own.flatMap(bonesUsedBy));
+      if ([...mine].some((b) => !theirs.has(b))) continue; // plain must use only bones the full one uses
+      if (overlapShare(plain.own, full.own) >= 0.6) pairs.push({ plain, full });
+    }
+  }
+  return pairs;
+}
+// share of a group's vertices (sampled) lying within 3 mm of another group's vertices, in rest pose
+function overlapShare(group, others) {
+  const CELL = 0.003, v = new THREE.Vector3(), grid = new Map();
+  const key = (x, y, z) => `${x},${y},${z}`;
+  for (const m of others) {
+    const pos = m.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      const k = key(Math.round(v.x / CELL), Math.round(v.y / CELL), Math.round(v.z / CELL));
+      let list = grid.get(k);
+      if (!list) grid.set(k, (list = []));
+      list.push(v.x, v.y, v.z);
+    }
+  }
+  let total = 0, near = 0;
+  for (const m of group) {
+    const pos = m.geometry.attributes.position;
+    const stride = Math.max(1, Math.floor(pos.count / 300));
+    for (let i = 0; i < pos.count; i += stride) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      total++;
+      const cx = Math.round(v.x / CELL), cy = Math.round(v.y / CELL), cz = Math.round(v.z / CELL);
+      let hit = false;
+      for (let dx = -1; dx <= 1 && !hit; dx++) for (let dy = -1; dy <= 1 && !hit; dy++) for (let dz = -1; dz <= 1 && !hit; dz++) {
+        const list = grid.get(key(cx + dx, cy + dy, cz + dz));
+        if (!list) continue;
+        for (let q = 0; q < list.length; q += 3) {
+          const ex = list[q] - v.x, ey = list[q + 1] - v.y, ez = list[q + 2] - v.z;
+          if (ex * ex + ey * ey + ez * ez < CELL * CELL) { hit = true; break; }
+        }
+      }
+      if (hit) near++;
+    }
+  }
+  return total ? near / total : 0;
+}
+function applySwitchParts() {
+  const pairs = model?.switchParts ?? [];
+  if (!pairs.length) return;
+  const setHidden = (part, hide) => {
+    for (const m of part.meshes) { m.userData.switchHidden = hide; m.visible = !hide; }
+  };
+  // cafe clips: plain body only; battle clips: geared body only; anything else (e.g. the Carrier clips):
+  // both, as their own file draws them
+  const name = action ? action.getClip().name : "";
+  const cafe = /^Cafe/i.test(name);
+  const battle = /^(Normal|Kneel|Stand|Move|Formation|Exs|Victory|Vital|Tactical)/i.test(name);
+  for (const { plain, full } of pairs) { setHidden(plain, battle); setHidden(full, cafe); }
+  step(0);
 }
 const isBodyBone = (b) => /^Bip001/i.test(b.name) && !/weapon/i.test(b.name);
 
@@ -551,8 +631,14 @@ function splitAccessories(o) {
   if (!o.isSkinnedMesh) return null;
   // clothing can also hang off the root (dress panels, coats, scarves, shoes): never treat it as an accessory
   const CLOTHING = /dress|coat|scarf|shoe|skirt|cloth|cape|ribbon|tail|sleeve|hair|hood|collar|tie/i;
+  // equipment worn on the body: bags/backpacks, or a back rig like Arisu (Battle)'s gear (wings, cannons)
+  const EQUIPMENT = /gearbody|backpack|bag|jetpack/i;
   const detached = o.skeleton.bones.map((b) => {
-    for (let a = b; a?.isBone; a = a.parent) if (/^Bip001/i.test(a.name) || CLOTHING.test(a.name)) return false;
+    for (let a = b; a?.isBone; a = a.parent) {
+      if (CLOTHING.test(a.name) || /weapon/i.test(a.name)) return false;
+      if (EQUIPMENT.test(a.name)) return true;
+      if (/^Bip001/i.test(a.name)) return false;
+    }
     return true;
   });
   if (!detached.some(Boolean)) return null;
@@ -582,6 +668,7 @@ function splitAccessories(o) {
   mesh.bindMode = o.bindMode;
   mesh.position.copy(o.position); mesh.quaternion.copy(o.quaternion); mesh.scale.copy(o.scale);
   mesh.userData.accessory = true;
+  mesh.userData.source = o;
   o.parent.add(mesh);
   return mesh;
 }
@@ -601,14 +688,14 @@ function applyOptionalProps() {
   const mode = $("props").value;
   const nodes = action ? nodesOf(action.getClip()) : new Set();
   const optional = new Set(d.optional.map((x) => x.mesh));
-  for (const o of d.props) if (!optional.has(o)) o.visible = mode !== "none";
+  for (const o of d.props) if (!optional.has(o)) o.visible = mode !== "none" && !o.userData.switchHidden;
   for (const { mesh, targets } of d.optional) {
     const allowed = (!swap || d.props.includes(mesh)) && !(mode === "none" && d.props.includes(mesh));
     let hit = false;
     for (const n of targets) if (nodes.has(n)) { hit = true; break; }
-    mesh.visible = allowed && hit;
+    mesh.visible = allowed && hit && !mesh.userData.switchHidden;
   }
-  for (const o of model.accessories) o.visible = mode === "all";
+  for (const o of model.accessories) o.visible = mode === "all" && !o.userData.switchHidden;
 }
 
 // Eye bones (eyelids, eye shapes): their movement is mapped through head space and scaled by eye size.
@@ -1005,9 +1092,20 @@ async function parseModel(entry, signal, progress) {
         const node = nodes.get(nodeName);
         return node && (propertyName !== "morphTargetInfluences" || node.morphTargetInfluences);
       };
+      // Some models use a morph target as an on/off switch for a mesh (weight 1 = collapsed), e.g. Arisu
+      // (Battle)'s geared body. Where the extra file's copy of a mesh has no morph target, its clips never
+      // set it, so pin it to 0 (shown), the state those clips were made for.
+      const unswitched = [];
+      gltf.scene.traverse((o) => {
+        if (!o.isMesh || !o.morphTargetInfluences || /^Mouth/i.test(o.name)) return;
+        const twin = eg.scene.getObjectByName(o.name);
+        if (twin?.isMesh && !twin.morphTargetInfluences) {
+          unswitched.push(new THREE.NumberKeyframeTrack(`${o.name}.morphTargetInfluences`, [0], o.morphTargetInfluences.map(() => 0)));
+        }
+      });
       for (const clip of eg.animations) {
         const tracks = clip.tracks.filter(fits);
-        gltf.animations.push(new THREE.AnimationClip(`${clip.name} (${label})`, clip.duration, tracks));
+        gltf.animations.push(new THREE.AnimationClip(`${clip.name} (${label})`, clip.duration, [...tracks, ...unswitched]));
       }
       eg.scene.traverse((o) => { o.geometry?.dispose(); o.material?.dispose?.(); });
     } catch (e) {
@@ -1215,6 +1313,7 @@ function playClip(name) {
   d.mixer.addEventListener("finished", onFinished);
   playing = true;
   step(0);
+  applySwitchParts();
   syncPlayButton();
   updateHash();
 }
@@ -1682,5 +1781,8 @@ renderer.setAnimationLoop(() => {
 
 await refreshCacheState();
 fromHash();
+
+
+
 
 
