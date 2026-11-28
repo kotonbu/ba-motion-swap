@@ -414,9 +414,11 @@ function makePuppet(gltf, entry) {
   // They still get materials and outlines, for clips that switch to them (see applyAlternates).
   p.alternates = hideAlternateParts(root, meshes);
   for (const o of [...meshes]) {
-    if (MOUTH.test(o.name) || isProp(o) || underHalo(o) || o.userData.alternate) continue;
-    const acc = splitAccessories(o);
-    if (acc) { meshes.push(acc); p.accessories.push(acc); }
+    if (MOUTH.test(o.name) || underHalo(o) || o.userData.alternate) continue;
+    // props: only their equipment parts become accessories (Ui (Swimsuit)'s suitcase, not her mug)
+    const acc = splitAccessories(o, isProp(o));
+    if (acc === o) p.accessories.push(o); // a whole mesh of equipment
+    else if (acc) { meshes.push(acc); p.accessories.push(acc); }
   }
   for (const o of meshes) {
     o.castShadow = true;
@@ -727,16 +729,21 @@ function hideAlternateParts(root, meshes) {
 // Accessories baked into a body mesh (e.g. Shokuhou Misaki's bag): triangles skinned only to bones that
 // hang off the model's root instead of the body skeleton. They're split into their own mesh so they can be
 // hidden. Returns the new mesh, or null if the mesh has none.
-function splitAccessories(o) {
+// equipmentOnly (for props): only parts on equipment bones are taken, so a prop that shares a mesh with
+// equipment keeps the rest (Ui (Swimsuit)'s mug stays a prop, her suitcase becomes an accessory)
+function splitAccessories(o, equipmentOnly = false) {
   if (!o.isSkinnedMesh) return null;
   // clothing can also hang off the root (dress panels, coats, scarves, shoes): never treat it as an accessory
   const CLOTHING = /dress|coat|scarf|shoe|skirt|cloth|cape|ribbon|tail|sleeve|hair|hood|collar|tie/i;
-  // equipment worn on the body: bags/backpacks, or a back rig like Arisu (Battle)'s gear (wings, cannons)
-  const EQUIPMENT = /gearbody|backpack|bag|jetpack/i;
+  // equipment worn on the body: bags/backpacks, a back rig like Arisu (Battle)'s gear (wings, cannons),
+  // or Himari's wheelchair (bone_wheelchair, bone_wheel_L/R)
+  const EQUIPMENT = /gearbody|backpack|bag|jetpack|wheel/i;
+  const isEquipment = (b) => { for (let a = b; a?.isBone; a = a.parent) if (EQUIPMENT.test(a.name)) return true; return false; };
   const detached = o.skeleton.bones.map((b) => {
+    if (equipmentOnly) return isEquipment(b);
     for (let a = b; a?.isBone; a = a.parent) {
+      if (EQUIPMENT.test(a.name)) return true; // first: "wheelchair" contains "hair"
       if (CLOTHING.test(a.name) || /weapon/i.test(a.name)) return false;
-      if (EQUIPMENT.test(a.name)) return true;
       if (/^Bip001/i.test(a.name)) return false;
     }
     return true;
@@ -755,7 +762,16 @@ function splitAccessories(o) {
     const tri = [index[t], index[t + 1], index[t + 2]];
     (tri.every((v) => onDetached[v]) ? take : keep).push(...tri);
   }
-  if (!take.length || !keep.length) return null; // nothing to split, or the whole mesh is an accessory
+  if (!take.length) return null; // nothing to split
+  if (!keep.length) {
+    // the whole mesh is detached: a separate piece of equipment (Himari (Battle)'s wheelchair) becomes an
+    // accessory as it is; anything else (weapons, props on their own bones) stays as it was
+    const used = new Set();
+    for (let i = 0; i < si.count; i++) for (let c = 0; c < si.itemSize; c++) if (sw.getComponent(i, c) > 0) used.add(si.getComponent(i, c));
+    if (![...used].some((j) => isEquipment(o.skeleton.bones[j]))) return null;
+    o.userData.accessory = true;
+    return o;
+  }
   const part = new THREE.BufferGeometry();
   for (const [k, v] of Object.entries(g.attributes)) part.setAttribute(k, v);
   part.morphAttributes = g.morphAttributes;
