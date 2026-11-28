@@ -1146,7 +1146,51 @@ async function parseModel(entry, signal, progress) {
       console.warn(`[merge] couldn't load animations from ${name}:`, e);
     }
   }
+  await applyTextureFixes(entry, gltf, signal);
   return gltf;
+}
+
+// Meshes the source files give a wrong material, with where the right texture lives.
+// Saori (Dress)'s guns point at a see-through body material, so they were invisible; the same
+// rifle (identical UVs) in "Saori (Dress) (Cafe)" carries the proper weapon texture.
+const TEXTURE_FIXES = {
+  "Saori (Dress)": [{ meshes: /^Saori_Original_(Weapon|Handgun)/, from: "Saori (Dress) (Cafe)", image: "Saori_Original_Weapon" }],
+};
+async function applyTextureFixes(entry, gltf, signal) {
+  for (const fix of TEXTURE_FIXES[entry.name] ?? []) {
+    try {
+      const src = byName.get(fix.from);
+      if (!src) continue;
+      const map = await textureFromGlb(await download(src, null, signal), fix.image);
+      if (!map) continue;
+      gltf.scene.traverse((o) => {
+        if (!o.isMesh || !fix.meshes.test(o.name)) return;
+        const mat = o.material.clone();
+        Object.assign(mat, { map, transparent: false, opacity: 1, depthWrite: true, alphaTest: 0, name: fix.image });
+        o.material = mat;
+      });
+    } catch (e) {
+      if (e.name === "AbortError") throw e;
+      console.warn(`[texture fix] ${entry.name}:`, e);
+    }
+  }
+}
+// pull one embedded image out of a GLB by name, as a texture set up the way GLTFLoader does
+async function textureFromGlb(buf, imageName) {
+  const jsonLen = new DataView(buf).getUint32(12, true);
+  const json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 20, jsonLen)));
+  const img = json.images?.find((i) => i.name === imageName);
+  const view = img && json.bufferViews[img.bufferView];
+  if (!view) return null;
+  const binStart = 20 + jsonLen + 8;
+  const bytes = new Uint8Array(buf, binStart + (view.byteOffset ?? 0), view.byteLength);
+  const bitmap = await createImageBitmap(new Blob([bytes], { type: img.mimeType || "image/png" }));
+  const tex = new THREE.Texture(bitmap);
+  tex.flipY = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.name = imageName;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 // Remove images/materials from a GLB so it parses fast when only its animations are needed.
