@@ -450,6 +450,16 @@ function makePuppet(gltf, entry) {
     p.optional.push({ mesh: o, targets });
   }
   p.switchParts = buildSwitchParts(root, meshes);
+  p.switchDefaults = new Map();
+  const groups = p.switchParts.map(({ plain, full }) => [...plain.meshes, ...full.meshes]);
+  const members = groups.flat();
+  for (const group of groups) {
+    // Only drive morphs for an unambiguous pair. Other switches keep their existing visibility rules.
+    if (group.some((m) => members.indexOf(m) !== members.lastIndexOf(m))) continue;
+    for (const mesh of group) {
+      if (isCollapseSwitch(mesh)) p.switchDefaults.set(mesh, mesh.morphTargetInfluences[0]);
+    }
+  }
   return p;
 }
 
@@ -552,18 +562,50 @@ function updateAlternates() {
     m.visible = !!m.userData.altDriven && !(k >= 0 && m.morphTargetInfluences?.[k] > 0.999);
   }
 }
+// A single position morph can be a visibility switch: at weight 1 every vertex coincides.
+// Leave expression and shape morphs under their normal animation controls.
+function isCollapseSwitch(mesh) {
+  const g = mesh.geometry, pos = g.attributes.position, targets = g.morphAttributes.position;
+  if (mesh.morphTargetInfluences?.length !== 1 || targets?.length !== 1 || !pos ||
+      pos.count < 3 || targets[0].count !== pos.count) return false;
+  const span = new THREE.Box3().setFromBufferAttribute(pos).getSize(new THREE.Vector3()).length();
+  if (!Number.isFinite(span) || span < 1e-5) return false;
+  const limit = 1e-6 * Math.max(1, span);
+  const box = new THREE.Box3(), v = new THREE.Vector3(), base = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(targets[0], i);
+    if (g.morphTargetsRelative) v.add(base.fromBufferAttribute(pos, i));
+    box.expandByPoint(v);
+  }
+  return box.getSize(v).length() <= limit;
+}
+
 function applySwitchParts() {
   const pairs = model?.switchParts ?? [];
   if (!pairs.length) return;
-  const setHidden = (part, hide) => {
-    for (const m of part.meshes) { m.userData.switchHidden = hide; m.visible = !hide; }
+  const setHidden = (part, hide, selected) => {
+    for (const m of part.meshes) {
+      let hidden = hide;
+      if (swap && model.switchDefaults.has(m)) {
+        // The borrowed clip drives the donor. Use the source mesh's authored default for
+        // unclassified clips, including on accessory geometry split from that mesh.
+        const rest = model.switchDefaults.get(m.userData.source ?? m);
+        if (rest !== undefined) {
+          const weight = selected ? 0 : rest;
+          m.morphTargetInfluences[0] = weight;
+          hidden ||= Math.abs(weight - 1) < 1e-6;
+        }
+      }
+      m.userData.switchHidden = hidden;
+      m.visible = !hidden;
+    }
   };
   // cafe clips: plain body only; battle clips: geared body only; anything else (e.g. the Carrier clips):
   // both, as their own file draws them
   const name = action ? action.getClip().name : "";
   const cafe = /^Cafe/i.test(name);
   const battle = /^(Normal|Kneel|Stand|Move|Formation|Exs|Victory|Vital|Tactical)/i.test(name);
-  for (const { plain, full } of pairs) { setHidden(plain, battle); setHidden(full, cafe); }
+  for (const { plain, full } of pairs) { setHidden(plain, battle, cafe); setHidden(full, cafe, battle); }
   step(0);
 }
 const isBodyBone = (b) => /^Bip001/i.test(b.name) && !/weapon/i.test(b.name);
@@ -1091,6 +1133,7 @@ function applyLids(swap) {
 
 function unbindSwap(model, swap) {
   if (!swap) return;
+  for (const [mesh, weight] of model.switchDefaults) mesh.morphTargetInfluences[0] = weight;
   for (const { obj, parent } of swap.donor.haloRoots) if (obj.parent !== parent) parent.add(obj);
   if (swap.idleClip) { model.mixer.uncacheAction(swap.idleClip); model.mixer.uncacheClip(swap.idleClip); }
   for (const { mesh } of swap.mouths) {
