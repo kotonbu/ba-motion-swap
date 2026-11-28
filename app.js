@@ -446,11 +446,23 @@ function buildSwitchParts(root, meshes) {
     node.traverse((o) => { if (o.isSkinnedMesh && !o.userData.isOutline && !o.userData.alternate && !MOUTH.test(o.name)) own.push(o); });
     if (own.length) parts.push({ node, own, meshes: meshes.filter((m) => own.includes(m) || own.includes(m.userData.source)) });
   });
+  // only whole-body alternates count: the geared partner must span most of the model's height (Arisu's
+  // geared body does; Ibuki's two faces, also switch-marked, don't)
+  const heightOf = (list) => {
+    const box = new THREE.Box3(), v = new THREE.Vector3();
+    for (const m of list) {
+      const pos = m.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) box.expandByPoint(v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld));
+    }
+    return box.isEmpty() ? 0 : box.max.y - box.min.y;
+  };
+  const modelHeight = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3()).y;
   const pairs = [];
   for (const plain of parts) {
     const mine = new Set(plain.own.flatMap(bonesUsedBy));
     for (const full of parts) {
       if (full === plain) continue;
+      if (heightOf(full.own) < 0.6 * modelHeight) continue;
       const theirs = new Set(full.own.flatMap(bonesUsedBy));
       if ([...mine].some((b) => !theirs.has(b))) continue; // plain must use only bones the full one uses
       if (overlapShare(plain.own, full.own) >= 0.6) pairs.push({ plain, full });
@@ -1781,6 +1793,8 @@ renderer.setAnimationLoop(() => {
 
 await refreshCacheState();
 fromHash();
+
+
 
 
 
