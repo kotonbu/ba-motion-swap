@@ -1,6 +1,16 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import {
+  MX_DEFAULTS,
+  mxSharedUniforms,
+  updateMxLightDirection,
+  resetMxUniforms,
+  classifyMxPart,
+  createMxMaterial,
+  createMxOutlineMaterial,
+  isSharedMxTexture,
+} from "./mx-shaders.js";
 
 const CACHE_NAME = "ba-models-v1";
 const $ = (id) => document.getElementById(id);
@@ -238,6 +248,12 @@ try {
   const saved = localStorage.getItem(HALO_KEY);
   if (["model", "motion", "off"].includes(saved)) $("halo").value = saved;
 } catch {}
+const SHADER_KEY = "ba-viewer-shader";
+try {
+  const saved = localStorage.getItem(SHADER_KEY);
+  if (["toon", "mx", "original"].includes(saved)) $("shader").value = saved;
+} catch {}
+const MX_KEY = "ba-viewer-mx";
 const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
 camera.position.set(0, 1, 4);
 const controls = new OrbitControls(camera, canvas);
@@ -250,6 +266,20 @@ sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0005;
 scene.add(sun, sun.target);
+
+let sunRadius = 3.2;
+const sunCenter = new THREE.Vector3(0, 1, 0);
+const mxState = { ...MX_DEFAULTS };
+try {
+  const saved = JSON.parse(localStorage.getItem(MX_KEY) || "null");
+  if (saved && typeof saved === "object") Object.assign(mxState, saved);
+} catch {}
+function syncSun() {
+  const dir = updateMxLightDirection(mxState.lightAzimuth, mxState.lightElevation);
+  sun.position.copy(sunCenter).addScaledVector(dir, sunRadius);
+  sun.target.position.copy(sunCenter);
+}
+syncSun();
 
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShadowMaterial({ opacity: 0.18 }));
 ground.rotation.x = -Math.PI / 2;
@@ -373,11 +403,15 @@ function makePuppet(gltf, entry) {
     if (m && o.morphTargetInfluences) p.mouths.set(m[1], o);
     else if (!o.userData.accessory && isProp(o)) p.props.push(o);
     const src = o.material;
+    const isHalo = underHalo(o) || /halo/i.test(src.name + " " + o.name);
+    const mxPart = classifyMxPart(o, src, Boolean(m), isHalo);
     o.userData.origMat = src;
-    o.userData.toonMat = toonFor(src, /halo/i.test(src.name + " " + o.name));
+    o.userData.toonMat = toonFor(src, isHalo);
+    o.userData.mxPart = mxPart;
+    o.userData.mxMat = createMxMaterial(src, mxPart);
     p.toonables.push(o);
     const faceDetail = src.alphaTest > 0 || src.transparent || /eye|mouth|brow|halo/i.test(src.name + " " + o.name);
-    if (!faceDetail) p.outlines.push(addOutline(o));
+    if (!faceDetail) p.outlines.push(addOutline(o, src, mxPart));
   }
   // Optional props (marked in the GLB extras, e.g. Hoshino's shield) only appear while the playing
   // clip animates their own bones.
@@ -601,7 +635,7 @@ function toonFor(src, unlit) {
   return t;
 }
 
-function addOutline(o) {
+function addOutline(o, src, mxPart) {
   let line;
   if (o.isSkinnedMesh) {
     line = new THREE.SkinnedMesh(o.geometry, outlineMaterial);
@@ -612,6 +646,8 @@ function addOutline(o) {
   }
   if (o.morphTargetInfluences) line.morphTargetInfluences = o.morphTargetInfluences;
   line.userData.isOutline = true;
+  line.userData.stdMat = outlineMaterial;
+  line.userData.mxMat = createMxOutlineMaterial(o, src, mxPart);
   line.frustumCulled = false;
   o.add(line);
   return line;
@@ -625,14 +661,14 @@ function disposePuppet(p) {
   const mats = new Set(), texs = new Set();
   p.root.traverse((o) => {
     if (o.geometry && !o.userData.isOutline && !o.userData.borrowed) o.geometry.dispose();
-    for (const m of [o.material, o.userData.origMat, o.userData.toonMat].flat()) {
+    for (const m of [o.material, o.userData.origMat, o.userData.toonMat, o.userData.mxMat].flat()) {
       if (!m || m === outlineMaterial) continue;
       mats.add(m);
       if (!o.userData.borrowed) for (const v of Object.values(m)) if (v?.isTexture) texs.add(v);
     }
   });
   mats.forEach((m) => m.dispose());
-  texs.forEach((t) => t !== gradientMap && t.dispose());
+  texs.forEach((t) => t !== gradientMap && !isSharedMxTexture(t) && t.dispose());
 }
 
 // ---------- motion swap: the donor plays its own animation; its pose is copied onto the model ----------
@@ -706,6 +742,7 @@ function bindSwap(model, donor) {
       orig.map = dm.userData.origMat.map;
       const toon = quad.userData.toonMat.clone();
       toon.map = dm.userData.origMat.map;
+      const mx = createMxMaterial(orig, "eyemouth");
       const mesh = new THREE.SkinnedMesh(quad.geometry, orig);
       mesh.bind(quad.skeleton, quad.bindMatrix);
       mesh.bindMode = quad.bindMode;
@@ -714,7 +751,7 @@ function bindSwap(model, donor) {
       mesh.morphTargetInfluences = [1];
       mesh.name = "borrowed_Mouth_" + code;
       mesh.frustumCulled = false;
-      mesh.userData = { borrowed: true, origMat: orig, toonMat: toon };
+      mesh.userData = { borrowed: true, origMat: orig, toonMat: toon, mxMat: mx };
       quad.parent.add(mesh);
       mouths.push({ mesh, src: dm, code });
     }
@@ -866,6 +903,7 @@ function unbindSwap(model, swap) {
     mesh.removeFromParent();
     mesh.userData.origMat.dispose();
     mesh.userData.toonMat.dispose();
+    mesh.userData.mxMat?.dispose();
   }
   for (const o of model.props) o.visible = true;
   for (const o of model.mouths.values()) o.visible = true;
@@ -1069,12 +1107,31 @@ function updateChips() {
   $("swap-pair").disabled = !motionSrc;
 }
 
+function syncMxUi() {
+  const isMx = $("shader").value === "mx";
+  $("mx-tune-btn").classList.toggle("hidden", !isMx);
+  if (!isMx) {
+    $("mx-panel").classList.add("hidden");
+    $("mx-tune-btn").setAttribute("aria-expanded", "false");
+  }
+}
+
 function applyLook() {
+  syncMxUi();
   if (!model) return;
-  const toon = $("toon").checked;
+  const mode = $("shader").value;
   const all = [...model.toonables, ...(swap ? swap.donor.toonables : []), ...(swap ? swap.mouths.map((m) => m.mesh) : [])];
-  for (const o of all) o.material = toon ? o.userData.toonMat : o.userData.origMat;
-  for (const l of [...model.outlines, ...(swap ? swap.donor.outlines : [])]) l.visible = $("outline").checked;
+  for (const o of all) {
+    o.material = mode === "mx" && o.userData.mxMat ? o.userData.mxMat
+      : mode === "toon" && o.userData.toonMat ? o.userData.toonMat
+      : o.userData.origMat;
+  }
+  const showOutline = $("outline").checked;
+  for (const l of [...model.outlines, ...(swap ? swap.donor.outlines : [])]) {
+    l.visible = showOutline;
+    if (mode === "mx" && l.userData.mxMat) l.material = l.userData.mxMat;
+    else if (l.userData.stdMat) l.material = l.userData.stdMat;
+  }
   applyHalo();
 }
 
@@ -1235,8 +1292,10 @@ function frameModel() {
   const s = sun.shadow.camera;
   s.left = s.bottom = -h * 1.5; s.right = s.top = h * 1.5; s.near = 0.01; s.far = h * 10;
   s.updateProjectionMatrix();
-  sun.position.copy(center).add(new THREE.Vector3(h * 0.6, h * 1.4, h * 1.0));
-  sun.target.position.copy(center);
+  sunCenter.copy(center);
+  sunRadius = h * 1.85;
+  mxSharedUniforms.uModelScale.value = Math.max(0.01, (model.height || h) / 1.25);
+  syncSun();
 }
 
 // ---------- controls ----------
@@ -1303,10 +1362,63 @@ $("scrub").addEventListener("change", () => { scrubbing = false; });
 $("anim").addEventListener("change", (e) => playClip(e.target.value));
 $("mouth").addEventListener("change", () => step(0));
 $("loop").addEventListener("change", () => action && playClip(action.getClip().name));
-for (const id of ["toon", "outline", "halo"]) $(id).addEventListener("change", applyLook);
+for (const id of ["shader", "outline", "halo"]) $(id).addEventListener("change", applyLook);
+$("shader").addEventListener("change", (e) => {
+  try { localStorage.setItem(SHADER_KEY, e.target.value); } catch {}
+});
 $("halo").addEventListener("change", (e) => {
   try { localStorage.setItem(HALO_KEY, e.target.value); } catch {}
 });
+
+function applyMxState(save = false) {
+  $("mx-az").value = String(mxState.lightAzimuth);
+  $("mx-az-val").textContent = `${mxState.lightAzimuth}°`;
+  $("mx-el").value = String(mxState.lightElevation);
+  $("mx-el-val").textContent = `${mxState.lightElevation}°`;
+  $("mx-thresh").value = String(mxState.shadowThreshold);
+  $("mx-thresh-val").textContent = mxState.shadowThreshold.toFixed(2);
+  $("mx-sharp").value = String(mxState.lightSharpness);
+  $("mx-sharp-val").textContent = mxState.lightSharpness.toFixed(3);
+  $("mx-rim").value = String(mxState.rimStrength);
+  $("mx-rim-val").textContent = mxState.rimStrength.toFixed(2);
+  $("mx-spec").value = String(mxState.hairSpec);
+  $("mx-spec-val").textContent = mxState.hairSpec.toFixed(2);
+  $("mx-outline").value = String(mxState.outlineScale);
+  $("mx-outline-val").textContent = `${mxState.outlineScale.toFixed(2)}×`;
+  $("mx-dither").value = String(mxState.dither);
+  $("mx-dither-val").textContent = mxState.dither.toFixed(2);
+
+  syncSun();
+  mxSharedUniforms.uShadowThreshold.value = mxState.shadowThreshold;
+  mxSharedUniforms.uLightSharpness.value = mxState.lightSharpness;
+  mxSharedUniforms.uRimStrength.value = mxState.rimStrength;
+  mxSharedUniforms.uHairSpecLeveler.value = mxState.hairSpec;
+  mxSharedUniforms.uOutlineScale.value = mxState.outlineScale;
+  mxSharedUniforms.uDitherThreshold.value = mxState.dither;
+  if (save) try { localStorage.setItem(MX_KEY, JSON.stringify(mxState)); } catch {}
+}
+for (const [id, key] of [
+  ["mx-az", "lightAzimuth"], ["mx-el", "lightElevation"],
+  ["mx-thresh", "shadowThreshold"], ["mx-sharp", "lightSharpness"],
+  ["mx-rim", "rimStrength"], ["mx-spec", "hairSpec"],
+  ["mx-outline", "outlineScale"], ["mx-dither", "dither"],
+]) {
+  $(id).addEventListener("input", (e) => { mxState[key] = Number(e.target.value); applyMxState(true); });
+}
+const setMxPanel = (open) => {
+  $("mx-panel").classList.toggle("hidden", !open);
+  $("mx-tune-btn").setAttribute("aria-expanded", String(open));
+};
+$("mx-tune-btn").addEventListener("click", () => setMxPanel($("mx-panel").classList.contains("hidden")));
+$("mx-close").addEventListener("click", () => setMxPanel(false));
+$("mx-reset").addEventListener("click", () => {
+  Object.assign(mxState, MX_DEFAULTS);
+  resetMxUniforms();
+  try { localStorage.removeItem(MX_KEY); } catch {}
+  applyMxState(false);
+});
+applyMxState(false);
+syncMxUi();
 $("props").addEventListener("change", (e) => {
   try { localStorage.setItem(PROPS_KEY, e.target.value); } catch {}
   step(0);

@@ -60,6 +60,51 @@
     </div>
     <div id="error" class="overlay hidden" role="alert"></div>
 
+    <aside id="mx-panel" class="mx-panel hidden" aria-label="Blue Archive MX shader settings">
+      <header class="mx-head">
+        <h3>Blue Archive (MX)</h3>
+        <span class="mx-head-actions">
+          <button id="mx-reset" type="button" class="btn subtle small">Reset</button>
+          <button id="mx-close" type="button" class="icon-btn" aria-label="Close shader settings">✕</button>
+        </span>
+      </header>
+      <div class="mx-sliders">
+        <label class="mx-field">
+          <span>Light angle <b id="mx-az-val">32°</b></span>
+          <input type="range" id="mx-az" min="-180" max="180" step="1" value="32">
+        </label>
+        <label class="mx-field">
+          <span>Light height <b id="mx-el-val">48°</b></span>
+          <input type="range" id="mx-el" min="-15" max="85" step="1" value="48">
+        </label>
+        <label class="mx-field">
+          <span>Shadow threshold <b id="mx-thresh-val">0.38</b></span>
+          <input type="range" id="mx-thresh" min="0.05" max="0.85" step="0.01" value="0.38">
+        </label>
+        <label class="mx-field">
+          <span>Light sharpness <b id="mx-sharp-val">0.030</b></span>
+          <input type="range" id="mx-sharp" min="0.005" max="0.25" step="0.005" value="0.03">
+        </label>
+        <label class="mx-field">
+          <span>Rim strength <b id="mx-rim-val">0.55</b></span>
+          <input type="range" id="mx-rim" min="0" max="2" step="0.05" value="0.55">
+        </label>
+        <label class="mx-field">
+          <span>Hair specular <b id="mx-spec-val">0.18</b></span>
+          <input type="range" id="mx-spec" min="0" max="0.45" step="0.01" value="0.18">
+        </label>
+        <label class="mx-field">
+          <span>Outline scale <b id="mx-outline-val">1.00×</b></span>
+          <input type="range" id="mx-outline" min="0.2" max="2.5" step="0.05" value="1">
+        </label>
+        <label class="mx-field">
+          <span>Dither clip <b id="mx-dither-val">0.00</b></span>
+          <input type="range" id="mx-dither" min="0" max="0.95" step="0.02" value="0">
+        </label>
+      </div>
+      <p class="mx-foot">Passes: Body · Face · Hair · EyeMouth · Eyebrow · Halo</p>
+    </aside>
+
     <section id="controls" class="hidden">
       <div class="row chips">
         <button id="chip-model" class="chip" title="Change model">
@@ -105,7 +150,16 @@
         </label>
       </div>
       <div class="row wrap">
-        <label class="check"><input type="checkbox" id="toon" checked> Toon shading</label>
+        <span class="nowrap shader-group">
+          <label class="field inline">Shader
+            <select id="shader" autocomplete="off" title="Shading pipeline">
+              <option value="toon" selected>Simple Toon</option>
+              <option value="mx">Blue Archive (MX)</option>
+              <option value="original">Standard (GLB)</option>
+            </select>
+          </label>
+          <button id="mx-tune-btn" type="button" class="icon-btn small-icon hidden" title="Tune Blue Archive (MX) shader" aria-label="Tune Blue Archive (MX) shader" aria-expanded="false">⚙</button>
+        </span>
         <label class="check"><input type="checkbox" id="outline" checked> Outlines</label>
         <label class="field inline">Halo
           <select id="halo" autocomplete="off">

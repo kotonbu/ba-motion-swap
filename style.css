@@ -173,7 +173,8 @@ input[type="color"] { width: 28px; height: 22px; padding: 0; border: 1px solid v
 .show-controls svg { color: var(--accent); }
 .show-controls:hover { border-color: var(--accent); transform: translateX(-50%) translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,.22); }
 .show-controls:focus-visible, .panel-hide:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-#app.controls-hidden #controls { display: none; }
+#app.controls-hidden #controls,
+#app.controls-hidden #mx-panel { display: none; }
 #app.controls-hidden #controls:not(.hidden) ~ .show-controls { display: inline-flex; }
 #close-side { color: var(--muted); font-size: 18px; line-height: 1; }
 #close-side:hover { color: var(--text); }
@@ -290,4 +291,31 @@ kbd {
 /* no keyboard on phones / touch-only devices: hide the shortcuts button */
 @media (max-width: 720px), (hover: none) and (pointer: coarse) {
   #shortcuts-btn { display: none; }
+}
+
+/* ---------- Blue Archive (MX) shader tune panel ---------- */
+.shader-group { gap: 3px; }
+#mx-tune-btn { border-radius: 6px; padding: 2px 4px; }
+#mx-tune-btn[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); }
+.mx-panel {
+  position: absolute; top: 12px; right: 12px; z-index: 6;
+  width: min(264px, calc(100% - 24px)); max-height: calc(100% - 190px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--panel);
+  box-shadow: 0 4px 20px rgba(0,0,0,.14);
+}
+.mx-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mx-head h3 { margin: 0; font-size: 13px; font-weight: 700; }
+.mx-head-actions { display: inline-flex; align-items: center; gap: 4px; }
+.mx-head .icon-btn { color: var(--muted); }
+.mx-head .icon-btn:hover { color: var(--text); }
+.mx-sliders { display: flex; flex-direction: column; gap: 8px; }
+.mx-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.mx-field span { display: flex; justify-content: space-between; align-items: center; }
+.mx-field b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.mx-field input[type="range"] { width: 100%; margin: 0; accent-color: var(--accent); }
+.mx-foot {
+  margin: 2px 0 0; padding-top: 8px; border-top: 1px solid var(--line);
+  font-size: 11px; color: var(--muted); line-height: 1.35;
 }
