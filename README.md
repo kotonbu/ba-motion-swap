@@ -7,7 +7,7 @@ A static, single-page 3D viewer for Blue Archive student models. It runs entirel
 - 2D student icons from [SchaleDB](https://schaledb.com), bundled in `icons/`.
 - Each model is downloaded once and kept in the browser's Cache Storage. Later visits load it instantly, with no network request.
 - Every built-in animation is listed: Cafe, Formation, Exs, Normal/Kneel attacks, Victory, and more.
-- Controls: play/pause, scrubbing, speed and loop.
+- Controls: play/pause, scrubbing, speed and loop. **Keep camera** (on by default, remembered) leaves the view where it is when you switch students; **Reset camera** reframes.
 - Mouth shapes can be animated or forced.
 - Shader mode selector: **Simple Toon**, **Blue Archive (MX)** (WebGL/GLSL port of [MozziDog/BlueArchiveShaders](https://github.com/MozziDog/BlueArchiveShaders) with `MX_C-Body`, `MX_C-Face`, `MX_C-Hair`, `MX_C-EyeMouth`, `MX_C-Eyebrow`, `MX_C-Halo`, colored outlines, and a live `⚙` tuning panel), or **Standard (GLB)**; outlines can be toggled; the halo can come from the model, the motion student, or be hidden; props and accessories (e.g. bags) can be hidden. The background colour is remembered.
 - **Export** dialog, rendered frame by frame off screen (any size up to 3840 px, viewport or fixed aspect, optional transparent background and ground shadow; framing either "Fit to model" — the model's bounds over the whole exported range, with adjustable padding — or the current view):

@@ -243,6 +243,13 @@ try {
   const saved = localStorage.getItem(PROPS_KEY);
   if (["all", "noacc", "none"].includes(saved)) $("props").value = saved;
 } catch {}
+// Keep camera: switching to another student leaves the view as it is (only the first model is framed)
+const KEEP_CAM_KEY = "ba-viewer-keep-camera";
+try { if (localStorage.getItem(KEEP_CAM_KEY) === "0") $("keep-cam").checked = false; } catch {}
+$("keep-cam").addEventListener("change", (e) => {
+  try { e.target.checked ? localStorage.removeItem(KEEP_CAM_KEY) : localStorage.setItem(KEEP_CAM_KEY, "0"); } catch {}
+});
+let framedOnce = false;
 const HALO_KEY = "ba-viewer-halo";
 try {
   const saved = localStorage.getItem(HALO_KEY);
@@ -1392,7 +1399,11 @@ function setClips(wantAnim) {
   sel.disabled = !clips.length;
   const pick = [wantAnim, "Cafe_Idle", "Normal_Idle", "Formation_Idle"].find((n) => n && clips.some((c) => c.name === n));
   playClip(pick ?? clips[0]?.name);
-  if (model.needsFraming) { frameModel(); model.needsFraming = false; }
+  if (model.needsFraming) {
+    if (!framedOnce || !$("keep-cam").checked) frameModel();
+    framedOnce = true;
+    model.needsFraming = false;
+  }
 }
 
 function setupMouthMenu() {
