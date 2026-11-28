@@ -358,6 +358,26 @@ function isProp(o) {
   return !BODY_NAME.test(o.name + " " + mats);
 }
 
+// Some meshes have triangles wound against their own vertex normals (e.g. much of Saori (Dress)'s skirt).
+// The game lights by the normals alone, but three.js flips the normal of a triangle seen from its back,
+// so those triangles were lit from the inside and came out dark or flat. Turn them round to match.
+const rewound = new WeakSet();
+function matchWindingToNormals(geo) {
+  const idx = geo.index, pos = geo.attributes.position, nrm = geo.attributes.normal;
+  if (!idx || !nrm || rewound.has(geo)) return;
+  rewound.add(geo);
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3(), t = new THREE.Vector3();
+  let flipped = 0;
+  for (let i = 0; i + 2 < idx.count; i += 3) {
+    const i0 = idx.getX(i), i1 = idx.getX(i + 1), i2 = idx.getX(i + 2);
+    a.fromBufferAttribute(pos, i0); b.fromBufferAttribute(pos, i1); c.fromBufferAttribute(pos, i2);
+    const face = c.sub(b).cross(a.sub(b)); // (c - b) x (a - b): three.js's front-face normal
+    n.fromBufferAttribute(nrm, i0).add(t.fromBufferAttribute(nrm, i1)).add(t.fromBufferAttribute(nrm, i2));
+    if (face.dot(n) < 0) { idx.setX(i + 1, i2); idx.setX(i + 2, i1); flipped++; }
+  }
+  if (flipped) idx.needsUpdate = true;
+}
+
 function makePuppet(gltf, entry) {
   const root = gltf.scene;
   root.updateMatrixWorld(true);
@@ -389,6 +409,7 @@ function makePuppet(gltf, entry) {
     // the top of each halo branch (usually a node hanging off the head bone)
     if (/halo/i.test(o.name) && !underHalo(o.parent) && !o.isSkinnedMesh) p.haloRoots.push({ obj: o, parent: o.parent });
   });
+  for (const o of meshes) matchWindingToNormals(o.geometry);
   // alternate copies of body parts (e.g. Kisaki's Body02) stay hidden; drawing both breaks the model
   for (const o of hideAlternateParts(root, meshes)) meshes.splice(meshes.indexOf(o), 1);
   for (const o of [...meshes]) {
