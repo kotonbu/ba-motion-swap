@@ -410,10 +410,11 @@ function makePuppet(gltf, entry) {
     if (/halo/i.test(o.name) && !underHalo(o.parent) && !o.isSkinnedMesh) p.haloRoots.push({ obj: o, parent: o.parent });
   });
   for (const o of meshes) matchWindingToNormals(o.geometry);
-  // alternate copies of body parts (e.g. Kisaki's Body02) stay hidden; drawing both breaks the model
-  for (const o of hideAlternateParts(root, meshes)) meshes.splice(meshes.indexOf(o), 1);
+  // alternate copies of body parts (e.g. Kisaki's Body02) stay hidden; drawing both breaks the model.
+  // They still get materials and outlines, for clips that switch to them (see applyAlternates).
+  p.alternates = hideAlternateParts(root, meshes);
   for (const o of [...meshes]) {
-    if (MOUTH.test(o.name) || isProp(o) || underHalo(o)) continue;
+    if (MOUTH.test(o.name) || isProp(o) || underHalo(o) || o.userData.alternate) continue;
     const acc = splitAccessories(o);
     if (acc) { meshes.push(acc); p.accessories.push(acc); }
   }
@@ -422,7 +423,7 @@ function makePuppet(gltf, entry) {
     o.frustumCulled = false;
     const m = o.name.match(MOUTH);
     if (m && o.morphTargetInfluences) p.mouths.set(m[1], o);
-    else if (!o.userData.accessory && isProp(o)) p.props.push(o);
+    else if (!o.userData.accessory && !o.userData.alternate && isProp(o)) p.props.push(o);
     const src = o.material;
     const isHalo = underHalo(o) || /halo/i.test(src.name + " " + o.name);
     const mxPart = classifyMxPart(o, src, Boolean(m), isHalo);
@@ -437,6 +438,7 @@ function makePuppet(gltf, entry) {
   // Optional props (marked in the GLB extras, e.g. Hoshino's shield) only appear while the playing
   // clip animates their own bones.
   for (const o of meshes) {
+    if (o.userData.alternate) continue; // shown only by applyAlternates
     let optRoot = null;
     for (let a = o; a && a !== root; a = a.parent) if (a.userData?.optional) { optRoot = a; break; }
     if (!optRoot) continue;
@@ -526,6 +528,29 @@ function overlapShare(group, others) {
     }
   }
   return total ? near / total : 0;
+}
+// A hidden alternate is shown while the playing clip drives its morph-target switch (weight 1 = collapsed),
+// e.g. Tsukuyo's Victory_*_Random clips, which swap her body for her tree disguise. Outside those clips the
+// game never shows it, and its unswitched morph would draw it on top of the model.
+function applyAlternates() {
+  const alts = model?.alternates ?? [];
+  if (!alts.length) return;
+  const driven = new Set();
+  // with a motion swap the clip drives the other student's meshes, not these
+  for (const t of (!swap && action?.getClip().tracks) || []) {
+    const { nodeName, propertyName } = THREE.PropertyBinding.parseTrackName(t.name);
+    if (propertyName === "morphTargetInfluences") driven.add(nodeName);
+  }
+  for (const m of alts) m.userData.altDriven = driven.has(m.name);
+  updateAlternates();
+}
+// every frame: a driven alternate is drawn only while its switch is on. Collapsed (weight 1), its vertices
+// meet in the rest pose but skinning pulls them apart again into shards, so don't draw it at all.
+function updateAlternates() {
+  for (const m of model?.alternates ?? []) {
+    const k = m.userData.collapseMorph ??= collapsingMorph(m.geometry);
+    m.visible = !!m.userData.altDriven && !(k >= 0 && m.morphTargetInfluences?.[k] > 0.999);
+  }
 }
 function applySwitchParts() {
   const pairs = model?.switchParts ?? [];
@@ -700,6 +725,8 @@ function splitAccessories(o) {
   mesh.bind(o.skeleton, o.bindMatrix);
   mesh.bindMode = o.bindMode;
   mesh.position.copy(o.position); mesh.quaternion.copy(o.quaternion); mesh.scale.copy(o.scale);
+  // share the morph weights, so clips that switch the source mesh off (weight 1 = collapsed) switch this too
+  if (o.morphTargetInfluences) { mesh.morphTargetInfluences = o.morphTargetInfluences; mesh.morphTargetDictionary = o.morphTargetDictionary; }
   mesh.userData.accessory = true;
   mesh.userData.source = o;
   o.parent.add(mesh);
@@ -774,9 +801,28 @@ function hideCollapsedOutlines(p) {
   for (const l of p.outlines) {
     const bones = l.userData.bones;
     if (!bones?.length) continue;
-    const collapsed = bones.every((b) => b.matrixWorld.getMaxScaleOnAxis() < 0.05 * (b.userData.restScale || 1));
+    let collapsed = bones.every((b) => b.matrixWorld.getMaxScaleOnAxis() < 0.05 * (b.userData.restScale || 1));
+    const k = l.userData.collapseMorph;
+    if (k >= 0 && l.morphTargetInfluences?.[k] > 0.999) collapsed = true;
     l.visible = show && !collapsed;
   }
+}
+
+// index of a morph target that squashes the whole mesh to a point (a show/hide switch), or -1
+function collapsingMorph(geo) {
+  const pos = geo.attributes.position, targets = geo.morphAttributes?.position;
+  if (!targets) return -1;
+  const box = new THREE.Box3(), v = new THREE.Vector3(), d = new THREE.Vector3();
+  for (let k = 0; k < targets.length; k++) {
+    box.makeEmpty();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(targets[k], i);
+      if (geo.morphTargetsRelative) v.add(d.fromBufferAttribute(pos, i));
+      box.expandByPoint(v);
+    }
+    if (box.getSize(v).length() < 0.002) return k;
+  }
+  return -1;
 }
 
 function addOutline(o, src, mxPart) {
@@ -793,6 +839,7 @@ function addOutline(o, src, mxPart) {
   // bones this part is skinned to, with their rest scale (see hideCollapsedOutlines)
   line.userData.bones = o.isSkinnedMesh ? bonesUsedBy(o) : [];
   for (const b of line.userData.bones) b.userData.restScale ??= b.matrixWorld.getMaxScaleOnAxis();
+  line.userData.collapseMorph = collapsingMorph(o.geometry);
   line.userData.stdMat = outlineMaterial;
   line.userData.mxMat = createMxOutlineMaterial(o, src, mxPart);
   line.frustumCulled = false;
@@ -1391,6 +1438,7 @@ function playClip(name) {
   playing = true;
   step(0);
   applySwitchParts();
+  applyAlternates();
   syncPlayButton();
   updateHash();
 }
@@ -1409,6 +1457,7 @@ function step(dt) {
   forceMouth();
   syncMouthVisibility();
   applyOptionalProps();
+  updateAlternates();
   model.root.updateMatrixWorld(true);
   hideCollapsedOutlines(model);
   if (swap) { swap.donor.root.updateMatrixWorld(true); hideCollapsedOutlines(swap.donor); }
