@@ -601,6 +601,30 @@ function toonFor(src, unlit) {
   return t;
 }
 
+// Bones that actually move a skinned mesh's vertices.
+function bonesUsedBy(m) {
+  const set = new Set();
+  const si = m.geometry.attributes.skinIndex, sw = m.geometry.attributes.skinWeight;
+  if (!si || !sw) return [];
+  for (let i = 0; i < si.count; i++) {
+    for (let c = 0; c < si.itemSize; c++) if (sw.getComponent(i, c) > 0.01) set.add(m.skeleton.bones[si.getComponent(i, c)]);
+  }
+  return [...set];
+}
+
+// The game "hides" props in some clips by shrinking their bones to ~0 (e.g. Saten Ruiko's bat, phone and
+// bread in her cafe animations). The mesh collapses to a point, but our outlines are pushed out by a fixed
+// number of screen pixels, so a collapsed part still drew a small dark ring. Hide those outlines.
+function hideCollapsedOutlines(p) {
+  const show = $("outline").checked;
+  for (const l of p.outlines) {
+    const bones = l.userData.bones;
+    if (!bones?.length) continue;
+    const collapsed = bones.every((b) => b.matrixWorld.getMaxScaleOnAxis() < 0.05 * (b.userData.restScale || 1));
+    l.visible = show && !collapsed;
+  }
+}
+
 function addOutline(o) {
   let line;
   if (o.isSkinnedMesh) {
@@ -612,6 +636,9 @@ function addOutline(o) {
   }
   if (o.morphTargetInfluences) line.morphTargetInfluences = o.morphTargetInfluences;
   line.userData.isOutline = true;
+  // bones this part is skinned to, with their rest scale (see hideCollapsedOutlines)
+  line.userData.bones = o.isSkinnedMesh ? bonesUsedBy(o) : [];
+  for (const b of line.userData.bones) b.userData.restScale ??= b.matrixWorld.getMaxScaleOnAxis();
   line.frustumCulled = false;
   o.add(line);
   return line;
@@ -1146,6 +1173,9 @@ function step(dt) {
   forceMouth();
   syncMouthVisibility();
   applyOptionalProps();
+  model.root.updateMatrixWorld(true);
+  hideCollapsedOutlines(model);
+  if (swap) { swap.donor.root.updateMatrixWorld(true); hideCollapsedOutlines(swap.donor); }
 }
 
 // Bounding box of everything currently shown (model, borrowed props/halo), using posed vertices.
