@@ -2272,20 +2272,22 @@
   {
    "name": "Shun (Swimsuit) (1)",
    "base": "Shun",
-   "variant": "Swimsuit, 1",
+   "variant": "Swimsuit",
    "file": "Shun (Swimsuit) (1).glb",
    "size": 8028288,
    "sha": "5525a95083240cac112df5baef21b8a4459b48b8",
-   "icon": 10143
+   "icon": 10143,
+   "display": "Shun (Swimsuit)"
   },
   {
    "name": "Shun (Swimsuit) (2)",
    "base": "Shun",
-   "variant": "Swimsuit, 2",
+   "variant": "Swimsuit (Kid)",
    "file": "Shun (Swimsuit) (2).glb",
    "size": 7330592,
    "sha": "c023d6f9ab103cc6182990771eb3cd002be507f2",
-   "icon": 10143
+   "icon": 10144,
+   "display": "Shun (Swimsuit) (Kid)"
   },
   {
    "name": "Subaru",

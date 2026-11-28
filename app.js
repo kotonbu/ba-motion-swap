@@ -60,6 +60,7 @@ const models = manifest.models;
 const byName = new Map(models.map((m) => [m.name, m]));
 const modelUrl = (m) =>
   `https://raw.githubusercontent.com/${manifest.repo}/${manifest.commit}/${encodeURIComponent(m.file)}`;
+const title = (m) => m?.display ?? m?.name; // shown name (a few entries are renamed in the manifest)
 const iconUrl = (m) => (m?.icon != null ? `./icons/${m.icon}.webp` : null);
 
 const cached = new Set(); // model names fully downloaded
@@ -89,7 +90,7 @@ function setPickMode(mode) {
   $("sidebar").classList.toggle("motion-mode", mode === "motion");
   $("pick-hint").textContent = mode === "model"
     ? "Pick the student to show."
-    : `Pick whose animations ${current ? current.name : "the model"} should use.`;
+    : `Pick whose animations ${current ? title(current) : "the model"} should use.`;
   renderList();
 }
 $("tab-model").addEventListener("click", () => setPickMode("model"));
@@ -108,13 +109,13 @@ function renderList() {
     own.className = "own";
     own.dataset.own = "1";
     own.setAttribute("aria-selected", String(!motionSrc));
-    own.textContent = `Use ${current.name}'s own motions`;
+    own.textContent = `Use ${title(current)}'s own motions`;
     li.append(own);
     list.append(li);
   }
   let group = null, lastBase = null;
   for (const m of models) {
-    if (q && !m.name.toLowerCase().includes(q)) continue;
+    if (q && !m.name.toLowerCase().includes(q) && !title(m).toLowerCase().includes(q)) continue;
     if (onlyCached && !cached.has(m.name)) continue;
     if (m.mergedInto) continue; // same 3D model as another entry; its animations are merged into that one
     if (m.base !== lastBase) {
@@ -998,14 +999,14 @@ async function load(modelEntry, motionEntry, wantAnim) {
   try {
     let newModel = null, newDonor = null;
     if (model?.entry !== modelEntry) {
-      begin(`${cached.has(modelEntry.name) ? "Loading" : "Downloading"} ${modelEntry.name}…`);
-      newModel = makePuppet(await parseModel(modelEntry, signal, progress(modelEntry.name)), modelEntry);
+      begin(`${cached.has(modelEntry.name) ? "Loading" : "Downloading"} ${title(modelEntry)}…`);
+      newModel = makePuppet(await parseModel(modelEntry, signal, progress(title(modelEntry))), modelEntry);
       if (token !== loadToken) return disposePuppet(newModel);
     }
     const keepDonor = motionEntry && swap?.donor.entry === motionEntry;
     if (motionEntry && !keepDonor) {
-      begin(`${cached.has(motionEntry.name) ? "Loading" : "Downloading"} motions from ${motionEntry.name}…`);
-      newDonor = makePuppet(await parseModel(motionEntry, signal, progress(`motions from ${motionEntry.name}`)), motionEntry);
+      begin(`${cached.has(motionEntry.name) ? "Loading" : "Downloading"} motions from ${title(motionEntry)}…`);
+      newDonor = makePuppet(await parseModel(motionEntry, signal, progress(`motions from ${title(motionEntry)}`)), motionEntry);
       if (token !== loadToken) { disposePuppet(newModel); disposePuppet(newDonor); return; }
     }
 
@@ -1062,8 +1063,8 @@ function updateChips() {
     if (u) img.src = u; else img.removeAttribute("src");
     $(id).querySelector("b").textContent = text;
   };
-  setChip("chip-model", current, current?.name ?? "—");
-  setChip("chip-motion", motionSrc ?? current, motionSrc ? motionSrc.name : "Own motions");
+  setChip("chip-model", current, title(current) ?? "—");
+  setChip("chip-motion", motionSrc ?? current, motionSrc ? title(motionSrc) : "Own motions");
   $("reset-motion").classList.toggle("hidden", !motionSrc);
   $("swap-pair").disabled = !motionSrc;
 }
@@ -1093,7 +1094,7 @@ function applyHalo() {
 function syncHaloOptions() {
   const opt = $("halo").querySelector('option[value="motion"]');
   opt.disabled = !swap;
-  opt.textContent = swap ? `From ${swap.donor.entry.name}` : "From motion";
+  opt.textContent = swap ? `From ${title(swap.donor.entry)}` : "From motion";
 }
 
 // Mouth shapes are separate quads collapsed by a morph weight: 1 = hidden, 0 = shown.
@@ -1329,7 +1330,7 @@ const exportRenderer = {
   info() {
     const clip = action?.getClip();
     const stage = $("stage");
-    const motion = motionSrc ? ` + ${motionSrc.name}` : "";
+    const motion = motionSrc ? ` + ${title(motionSrc)}` : "";
     return {
       ready: !!model,
       clip: clip?.name ?? "",
@@ -1337,7 +1338,7 @@ const exportRenderer = {
       time: action ? action.time % (clip.duration || 1) : 0,
       speed: Number($("speed").value) || 1,
       viewportAspect: stage.clientWidth / Math.max(1, stage.clientHeight),
-      base: `${current?.name ?? "model"}${motion}${clip ? " - " + clip.name : ""}`,
+      base: `${title(current) ?? "model"}${motion}${clip ? " - " + clip.name : ""}`,
     };
   },
   begin({ width, height, transparent, shadow, fit = false, padding = 0.08, times = [] }) {

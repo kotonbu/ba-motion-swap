@@ -36,6 +36,12 @@ MERGE = {
     "Toki (Battle) (Scenario)": ("Toki (Battle)", "Scenario"),
     "Reisa (Magical) (Special)": ("Reisa (Magical)", "Special"),
 }
+# Display overrides for entries whose file name is misleading: shown name, list label, and the SchaleDB
+# student to take the icon from. The file name (used in links) stays the same.
+DISPLAY = {
+    "Shun (Swimsuit) (1)": {"display": "Shun (Swimsuit)", "variant": "Swimsuit"},
+    "Shun (Swimsuit) (2)": {"display": "Shun (Swimsuit) (Kid)", "variant": "Swimsuit (Kid)", "icon": "Shunling (Swimsuit)"},
+}
 # qualifiers that only distinguish model files, not outfits
 EXTRA = re.compile(r"^(Carrier( \d+)?|Scenario( \d+)?|Cut-in|Cafe|Special|No Weapon|Prototype|\d+)$")
 
@@ -91,8 +97,17 @@ def main():
             none.append(name)
         elif not exact:
             fallback.append(name)
-        models.append({"name": name, "base": base, "variant": ", ".join(quals),
-                       "file": t["path"], "size": t["size"], "sha": t["sha"], "icon": icon})
+        entry = {"name": name, "base": base, "variant": ", ".join(quals),
+                 "file": t["path"], "size": t["size"], "sha": t["sha"], "icon": icon}
+        if name in DISPLAY:
+            o = DISPLAY[name]
+            entry["display"] = o["display"]
+            entry["variant"] = o["variant"]
+            if "icon" in o:
+                if o["icon"] not in by_name:
+                    raise SystemExit(f"DISPLAY icon {o['icon']!r} not found in SchaleDB")
+                entry["icon"] = by_name[o["icon"]]
+        models.append(entry)
     by_name = {m["name"]: m for m in models}
     for extra, (main, label) in MERGE.items():
         if extra in by_name and main in by_name:
