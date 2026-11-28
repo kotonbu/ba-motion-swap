@@ -270,6 +270,11 @@ void main() {
     finalRgb = (adjustedAlbedo + rimLight) * uGrayBrightness;
   }
 
+  // Opaque materials must write alpha 1: many body textures keep a mask in their alpha channel (e.g.
+  // Saori (Dress)'s dress is alpha 0), which would otherwise leave see-through pixels in the canvas.
+  #ifdef MX_OPAQUE
+    alpha = 1.0;
+  #endif
   gl_FragColor = vec4( finalRgb, alpha );
   #include <colorspace_fragment>
 }
@@ -373,6 +378,7 @@ export function createMxMaterial(srcMat, part) {
     name: `MX_${part}_${srcMat.name || "mat"}`,
     vertexShader: MX_VERTEX_SHADER,
     fragmentShader: MX_FRAGMENT_SHADER,
+    defines: isTransparent ? {} : { MX_OPAQUE: "" },
     uniforms: {
       uMainTex: { value: srcMat.map ?? WHITE_TEX },
       uBaseColor: { value: srcMat.color?.clone() ?? new THREE.Color(1, 1, 1) },
